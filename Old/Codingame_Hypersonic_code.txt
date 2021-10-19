@@ -1,0 +1,203 @@
+/* Dear Euro Live technologies responsibles! 
+My name is Dmitrijs, and I would really like to be part of Your team. 
+Here is the code for hypersonic codingame, I just wrote:) */
+
+
+using System;
+using System.Linq;
+using System.IO;
+using System.Text;
+using System.Collections;
+using System.Collections.Generic;
+
+
+class Player
+{
+
+    static char[,] grid;
+    static int width;
+    static int height;
+
+    struct NewPlayer
+    {
+        
+        public NewPlayer(int x, int y, int bombs, int range)
+        {
+            coord.X = x;
+            coord.Y = y;
+            explosionRange = range;
+            bombsLeft = bombs;
+            canPutBombs = bombs > 0; 
+        }
+
+        public Coord coord;
+        public int explosionRange;
+        public bool canPutBombs;
+        public int bombsLeft;
+    }
+
+    struct Entity
+    {
+        public Entity(string line)
+        {
+            string[] inputs = line.Split(' ');
+            entityType = int.Parse(inputs[0]);
+            owner = int.Parse(inputs[1]);
+            x = int.Parse(inputs[2]);
+            y = int.Parse(inputs[3]);
+            param1 = int.Parse(inputs[4]);
+            param2 = int.Parse(inputs[5]);
+        }
+       
+        public int entityType;
+        public int owner;
+        public int x;
+        public int y;              
+        public int param1;
+        public int param2;
+    }
+
+    struct Coord
+    {
+        public Coord(int x, int y)
+        {
+            X = x;
+            Y = y;
+        }
+
+        public int X;
+        public int Y;
+    }
+
+    static NewPlayer FindMe(Entity[] entityList, int count)
+    {
+        for (int i = 0; i < count; i++ )
+        {
+            if (entityList[i].entityType == 0 && entityList[i].owner == 0)
+            {
+                return new NewPlayer(entityList[i].x, entityList[i].y, entityList[i].param1,  entityList[i].param2);
+            }
+        }
+        return new NewPlayer(0,0, 1, 2);
+    }
+
+    static bool NoBombsHere(Coord P, Entity[] entityList, int count)
+    {
+        for (int i = 0; i < count; i++ )
+        {
+            if (entityList[i].entityType == 1 && entityList[i].x == P.X && entityList[i].y == P.Y)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    static int BoxCount(Coord P, int explosionRange)
+    {
+        int result = 0;
+        if (grid[P.X, P.Y] != '0')
+        {
+            for (int i = P.X-explosionRange; i <= P.X + explosionRange; i++)
+            {
+                if (i >= 0 && i < width && i != P.X)
+                {
+                    if (grid[i, P.Y] == '0') result++;
+                }
+            }
+            for (int j = P.Y-explosionRange; j <= P.Y + explosionRange; j++)
+            {      
+                if (j >= 0 && j < height && j != P.Y)
+                {
+                    if (grid[P.X, j] == '0') result++;
+                }
+            }
+        }
+        return result;
+    }
+    
+    static Coord TheRichestBoxSpot(Coord P, int step, int explosionRange, Entity[] entityList, int count)
+    {
+        int maximumBoxCount = 0;
+        Coord result = new Coord(0,0);
+
+        for (int i = 0; i < width; i++)
+        {          
+            for (int j = 0; j < height; j++)
+            {
+                if (NoBombsHere(new Coord(i,j), entityList, count) && Math.Abs(P.X - i) <= step && Math.Abs(P.Y - j) <= step)
+                {
+                    int currentBoxCount = BoxCount(new Coord(i,j), explosionRange);
+                    
+                    if (currentBoxCount > maximumBoxCount)
+                    {
+                        maximumBoxCount = currentBoxCount;
+                        result.X = i;
+                        result.Y = j;
+                    }
+                }
+            }    
+        }
+
+        if (maximumBoxCount == 0)
+        {
+            for (int i = 0; i < width; i++)
+            {          
+                for (int j = 0; j < height; j++)
+                {                   
+                    int currentBoxCount = BoxCount(new Coord(i,j), explosionRange);
+                    if (currentBoxCount > maximumBoxCount)
+                    {
+                        maximumBoxCount = currentBoxCount;
+                        result.X = i;
+                        result.Y = j;
+                    }                   
+                }    
+            }
+        }
+        return result;
+    }
+
+    static void Main(string[] args)
+    {
+        string[] inputs;
+        inputs = Console.ReadLine().Split(' ');
+        width = int.Parse(inputs[0]);
+        height = int.Parse(inputs[1]);
+        int myId = int.Parse(inputs[2]);
+        grid = new char[width, height];
+        const int EXPLOSION_RANGE_CORRECTION = 1;
+        const int WALKING_RANGE = 6;
+
+        while (true)
+        {
+            for (int j = 0; j < height; j++)
+            {
+                string row = Console.ReadLine();
+                for (int i = 0; i < width; i++)  
+                {                                  
+                    grid[i,j] = row[i];
+                }            
+            }
+          
+            int entities = int.Parse(Console.ReadLine());
+            Entity[] entityList = new Entity[entities];
+            for (int i = 0; i < entities; i++)
+            {              
+                entityList[i] = new Entity(Console.ReadLine());         
+            }
+
+            NewPlayer MyPlayer = FindMe(entityList, entities);
+
+            if (BoxCount(MyPlayer.coord, MyPlayer.explosionRange - EXPLOSION_RANGE_CORRECTION) > 0 && NoBombsHere(MyPlayer.coord, entityList, entities) && MyPlayer.canPutBombs) 
+            {
+                Console.WriteLine($"BOMB {MyPlayer.coord.X} {MyPlayer.coord.Y}");
+            }
+            else 
+            {
+                Coord move = TheRichestBoxSpot(MyPlayer.coord, WALKING_RANGE, MyPlayer.explosionRange - EXPLOSION_RANGE_CORRECTION, entityList, entities);
+                Console.WriteLine($"MOVE {move.X} {move.Y}");
+            }
+        }
+    }
+}

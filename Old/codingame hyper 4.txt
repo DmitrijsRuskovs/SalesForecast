@@ -1,0 +1,468 @@
+using System;
+using System.Linq;
+using System.IO;
+using System.Text;
+using System.Collections;
+using System.Collections.Generic;
+
+class Player
+{
+    static char[,] grid;
+    static Cell[,] gridC;
+    static int width;
+    static int height;
+    const int EXPLOSION_RANGE_CORRECTION = 0;
+    const int MAX_WALKING_RANGE = 6;
+    const int MIN_WALKING_RANGE = 2;
+    const int MINIMUM_SAFE_TIME = 1;
+    const int SHELTER_RADIUS = 4;
+
+    struct NewPlayer
+    {        
+        public NewPlayer(int x, int y, int bombs, int range)
+        {
+            coord.X = x;
+            coord.Y = y;
+            explosionRange = range;
+            bombsLeft = bombs;
+            canPutBombs = bombs > 0; 
+            IsOnMarch = false;
+            Destination = new Coord(x,y);
+            LastPosition = new Coord(30,30);
+            LastBomb = 0;
+        }
+
+        public Coord coord;
+        public int explosionRange;
+        public bool canPutBombs;
+        public int bombsLeft;
+        public bool IsOnMarch;
+        public Coord Destination;   
+        public Coord LastPosition; 
+        public int LastBomb;    
+    }
+
+    struct Entity
+    {
+        public Entity(string line)
+        {
+            string[] inputs = line.Split(' ');
+            entityType = int.Parse(inputs[0]);
+            owner = int.Parse(inputs[1]);
+            x = int.Parse(inputs[2]);
+            y = int.Parse(inputs[3]);
+            param1 = int.Parse(inputs[4]);
+            param2 = int.Parse(inputs[5]);
+        }
+
+        public Entity(int X, int Y, int Range, int Time)
+        {
+            entityType = 1;
+            owner = 0;
+            x = X;
+            y = Y;
+            param1 = Time;
+            param2 = Range;
+        }
+       
+        public int entityType;
+        public int owner;
+        public int x;
+        public int y;              
+        public int param1 {get; set;}
+        public int param2 {get; set;} 
+    }
+
+    struct Cell
+    {
+       public char type;
+       public int access;
+       public int safe;
+       public int boxCount;
+    }
+
+    struct Coord
+    {
+        public Coord(int x, int y) { X = x; Y = y; }
+
+        public bool Equals(Coord coord2) => this.X == coord2.X && this.Y == coord2.Y;
+        
+        public int X;
+        public int Y;
+    }
+
+    static void OrganizeCellGrid(int X, int Y,  List<Entity> bombList, int explosionRange)
+    {
+        int[,] accessGrid = new int[width, height];
+        for (int j = 0; j < height; j++) for (int i = 0; i < width; i++) accessGrid[i,j] = 100;                  
+        accessGrid[X,Y] = 0;  
+        for (int s = 1; s <= 15; s++)
+        {
+            for (int j = 0; j < height; j++)
+                for (int i = 0; i < width; i++) 
+                {
+                    if (accessGrid[i,j] == s-1)
+                    {
+                        if (i-1>=0) if (accessGrid[i-1,j] == 100 && (gridC[i-1,j].type == '.')) accessGrid[i-1,j]=s;
+                        if (j-1>=0) if (accessGrid[i,j-1] == 100 && (gridC[i,j-1].type == '.')) accessGrid[i,j-1]=s;
+                        if (i+1<width) if (accessGrid[i+1,j] == 100 && (gridC[i+1,j].type == '.')) accessGrid[i+1,j]=s;
+                        if (j+1<height) if (accessGrid[i,j+1] == 100 && (gridC[i,j+1].type == '.')) accessGrid[i,j+1]=s;
+                    } 
+                }
+        }   
+
+        for (int j = 0; j < height; j++) for (int i = 0; i < width; i++)
+        {
+            int result = 20;
+            foreach (Entity bomb in bombList)
+            {           
+                int range = bomb.param2;                    
+                int time = bomb.param1+1;
+                if (time < result)
+                {
+                    if ((bomb.x == i && Math.Abs(bomb.y - j) < range) ||
+                        (bomb.y == j && Math.Abs(bomb.x - i) < range)) result = time; 
+                }                        
+            }
+            gridC[i,j].access = accessGrid[i,j];
+            gridC[i,j].safe = result;
+            gridC[i,j].boxCount = BoxCountC(i,j,explosionRange);
+        }
+    
+
+    }
+
+    static int BoxCountC(int X, int Y, int explosionRange)
+    {
+        int result = 0;      
+        if (gridC[X, Y].type == '.')
+        {
+            for (int i = 1; i< explosionRange; i++)                    
+                if (X - i >= 0)
+                {
+                    if (gridC[X - i, Y].type =='X') break;
+                    if (gridC[X - i, Y].type !='.' && gridC[X - i, Y].type !='b') {result++; break;}
+                }
+            for (int i = 1; i< explosionRange; i++)                    
+                if (Y - i >= 0)
+                {
+                    if (gridC[X, Y-i].type =='X') break;
+                    if (gridC[X, Y-i].type !='.' && gridC[X, Y-i].type !='b') {result++; break;}
+                }
+            for (int i = 1; i< explosionRange; i++)                    
+                if (X + i < width)
+                {
+                    if (gridC[X+i, Y].type =='X') break;
+                    if (gridC[X+i, Y].type !='.' && gridC[X+i, Y].type !='b') {result++; break;}
+                }
+            for (int i = 1; i< explosionRange; i++)                    
+                if (Y + i < height)
+                {
+                    if (gridC[X, Y+i].type =='X') break;
+                    if (gridC[X, Y+i].type !='.' && gridC[X, Y+i].type !='b') {result++; break;}
+                }
+        }        
+        return result;
+    }
+
+    static int BoxCount(int X, int Y, int explosionRange)
+    {
+        int result = 0;      
+        if (grid[X, Y] == '.' || grid[X, Y] == 'b')
+        {
+            for (int i = 1; i< explosionRange; i++)                    
+                if (X - i >= 0)
+                {
+                    if (grid[X - i, Y] =='X') break;
+                    if (grid[X - i, Y] !='.' && grid[X - i, Y] !='b') {result++; break;}
+                }
+            for (int i = 1; i< explosionRange; i++)                    
+                if (Y - i >= 0)
+                {
+                    if (grid[X, Y-i] =='X') break;
+                    if (grid[X, Y-i] !='.' && grid[X, Y-i] !='b') {result++; break;}
+                }
+            for (int i = 1; i< explosionRange; i++)                    
+                if (X + i < width)
+                {
+                    if (grid[X+i, Y] =='X') break;
+                    if (grid[X+i, Y] !='.' && grid[X+i, Y] !='b') {result++; break;}
+                }
+            for (int i = 1; i< explosionRange; i++)                    
+                if (Y + i < height)
+                {
+                    if (grid[X, Y+i] =='X') break;
+                    if (grid[X, Y+i] !='.' && grid[X, Y+i] !='b') {result++; break;}
+                }
+        }        
+        return result;
+    }
+
+    static int IsAccessible(int X, int Y, int X2, int Y2)
+    {       
+        int[,] accessGrid = new int[width, height];
+        for (int j = 0; j < height; j++) for (int i = 0; i < width; i++) accessGrid[i,j] = 20;                  
+        accessGrid[X,Y] = 0;  
+        for (int s = 1; s <= 10; s++)
+        {
+            for (int j = 0; j < height; j++)
+                for (int i = 0; i < width; i++) 
+                {
+                    if (accessGrid[i,j] == s-1)
+                    {
+                        if (i-1>=0) if (accessGrid[i-1,j] == 20 && (grid[i-1,j]=='.')) accessGrid[i-1,j]=s;
+                        if (j-1>=0) if (accessGrid[i,j-1] == 20 && (grid[i,j-1]=='.')) accessGrid[i,j-1]=s;
+                        if (i+1<width) if (accessGrid[i+1,j] == 20 && (grid[i+1,j]=='.')) accessGrid[i+1,j]=s;
+                        if (j+1<height) if (accessGrid[i,j+1] == 20 && (grid[i,j+1]=='.')) accessGrid[i,j+1]=s;
+                    } 
+                }
+        }   
+        return accessGrid[X2,Y2];
+    }  
+
+    static int IsInBombsRange(int X, int Y, List<Entity> bombList, List<Entity> gamerList)
+    {
+        int result = 20;
+        if (X < 0 || Y < 0 || X >= width || Y >= height)
+        {
+            result = 0;
+        }
+        else foreach (Entity i in bombList)
+        {           
+            int range = i.param2;          
+            foreach (Entity gamer in gamerList) if (gamer.owner == i.owner) range+=gamer.param2;
+            int time = i.param1+1;
+            if (time < result)
+            {
+                if ((i.x == X && Math.Abs(i.y - Y) < range) ||
+                    (i.y == Y && Math.Abs(i.x - X) < range)) result = time; 
+            }                        
+        }
+        return result;
+    }
+
+    static Coord FindShelterC(int X, int Y, int radius, int minimumSafety)
+    {
+        Coord result = new Coord(X,Y);       
+        for (int i = X - radius; i <= X + radius; i++)
+        for (int j = Y - radius; j <= Y + radius; j++)
+        {
+            if (i>=0 && j>=0 && i<width && j<height)
+            if (gridC[i,j].safe >= minimumSafety && gridC[i,j].access <= radius) { result.X=i; result.Y=j; }          
+        }
+        return result;
+    }
+
+    static Coord FindShelter(int X, int Y, int radius, List<Entity> bombList, List<Entity> gamerList,int minimumSafety)
+    {
+        Coord result = new Coord(X,Y);
+        
+        for (int i = X - radius; i <= X + radius; i++)
+        for (int j = Y - radius; j <= Y + radius; j++)
+        {
+            if (i>=0 && j>=0 && i<width && j<height)
+            if (grid[i,j]=='.' && IsInBombsRange(i,j, bombList, gamerList) >= minimumSafety && IsAccessible(X,Y,i,j)<=radius)
+            {
+                result.X=i;
+                result.Y=j;               
+            }
+        }
+        return result;
+    }
+
+    static Coord ClosestEntity(int X, int Y, int entityType, Entity[] entityList, int count)
+    {
+        Coord result = new Coord(20,20);
+        for (int i=0; i< count; i++)
+        {
+            if (entityList[i].entityType == entityType)
+            {
+                if (Math.Abs(entityList[i].x - X) + Math.Abs(entityList[i].y - Y) < Math.Abs(result.X - X) + Math.Abs(result.Y - Y) && gridC[entityList[i].x, entityList[i].y].access < 5)
+                {
+                    result.X = entityList[i].x;
+                    result.Y = entityList[i].y;
+                }
+            }
+        }      
+        return result;
+    }
+
+    static int Safe(int X, int Y)
+    {
+        int result = 20;
+        if (X >= 0 && Y >= 0 && X < width && Y < height) result = gridC[X,Y].safe;
+        return result;
+    }
+
+    static int Distance(Coord coord1, Coord coord2)
+    {
+        return Math.Abs(coord1.X - coord2.X) + Math.Abs(coord1.Y - coord2.Y);
+    }
+
+    static void SetDestination(NewPlayer player, Coord destination)
+    {
+        player.Destination = destination;
+        Console.WriteLine($"MOVE {destination.X} {destination.Y}");       
+    }
+
+    static Coord TheRichestBoxSpotC(Coord P, int minStep, int maxStep)
+    {
+        int maximumBoxCount = 0;       
+        Coord result = new Coord(0,0);       
+        for (int i = 0; i < width; i++)
+            for (int j = 0; j < height; j++)       
+            {
+                if (Math.Abs(P.X - i) >= minStep && Math.Abs(P.X - i) <= maxStep && Math.Abs(P.Y - j) <= maxStep && Math.Abs(P.Y - j) >= minStep)                    
+                    if (gridC[i,j].access <= maxStep)
+                    {
+                        int currentBoxCount = gridC[i,j].boxCount;
+                        if ((i==0 && j==0)||(i==0 && j==height-1)||(i==width-1 && j==0)||(i==width-1 && j==height-1))currentBoxCount =0;
+                        if (currentBoxCount > maximumBoxCount)
+                        {
+                            maximumBoxCount = currentBoxCount;
+                            result.X = i;
+                            result.Y = j;
+                        }                     
+                    }
+            }           
+        if (maximumBoxCount == 0) result = TheRichestBoxSpotC(P, 0, 15);       
+        return result;
+    }
+
+    static Coord TheRichestBoxSpot(Coord P, int minStep, int maxStep, int explosionRange, Entity[] entityList, int count)
+    {
+        int maximumBoxCount = 0;
+        
+        Coord result = new Coord(0,0);       
+
+        for (int i = 0; i < width; i++)
+            for (int j = 0; j < height; j++)       
+            {
+                if (Math.Abs(P.X - i) >= minStep && Math.Abs(P.X - i) <= maxStep && Math.Abs(P.Y - j) <= maxStep && Math.Abs(P.Y - j) >= minStep)
+                    
+                    if (grid[i,j]=='.' && IsAccessible(P.X,P.Y,i,j) < 7 )
+                    {
+                        int currentBoxCount = BoxCount(i,j, explosionRange);
+                        if ((i==0 && j==0)||(i==0 && j==height-1)||(i==width-1 && j==0)||(i==width-1 && j==height-1))currentBoxCount =0;
+                        int currentDistance = Distance(new Coord(i,j), P);
+                        if (currentBoxCount > maximumBoxCount)
+                        {
+                            maximumBoxCount = currentBoxCount;
+                            result.X = i;
+                            result.Y = j;
+                        }
+                        /*else if (currentBoxCount == maximumBoxCount)
+                        {
+                            if (Distance(new Coord(i,j), P) < Distance(result, P))
+                            {
+                                result.X = i;
+                                result.Y = j;
+                            }
+                        }*/
+                    }
+            }    
+        
+        if (maximumBoxCount == 0) result = TheRichestBoxSpot(P, 0, 15, explosionRange, entityList, count);       
+        return result;
+    }
+
+    static void Main(string[] args)
+    {
+        string[] inputs;
+        inputs = Console.ReadLine().Split(' ');
+        width = int.Parse(inputs[0]);
+        height = int.Parse(inputs[1]);
+        int myId = int.Parse(inputs[2]);
+        grid = new char[width, height];
+        gridC = new Cell[width, height];
+        NewPlayer MyPlayer = new NewPlayer(0,0,1,2);
+        int X = 0, Y = 0;
+
+        while (true)
+        {
+            for (int j = 0; j < height; j++)
+            {
+                string row = Console.ReadLine();
+                for (int i = 0; i < width; i++) grid[i,j] = row[i];
+                for (int i = 0; i < width; i++) gridC[i,j].type = row[i];                 
+            }
+
+            int newEntityId=0;
+            int entities = int.Parse(Console.ReadLine());
+            Entity[] entityList = new Entity[entities];
+            List<Entity> GamerList = new List<Entity>();
+            List<Entity> BombList = new List<Entity>();
+            for (int i = 0; i < entities; i++)
+            {              
+                entityList[i] = new Entity(Console.ReadLine());
+                
+                if (entityList[i].entityType == 0)
+                { 
+                    GamerList.Add(entityList[i]);
+                }
+                if (entityList[i].entityType == 1)
+                { 
+                    grid[entityList[i].x,entityList[i].y]='b';
+                    gridC[entityList[i].x,entityList[i].y].type='b';
+                    BombList.Add(entityList[i]);
+                }
+                if (entityList[i].entityType == 0 && entityList[i].owner == myId)  
+                {                  
+                    newEntityId =i;
+                    X = entityList[i].x;
+                    Y = entityList[i].y;                 
+                    MyPlayer.coord.X = X;
+                    MyPlayer.coord.Y = Y; 
+                    MyPlayer.bombsLeft = entityList[i].param1;
+                    MyPlayer.explosionRange = entityList[i].param2;
+                    MyPlayer.LastBomb++;                
+                }
+            }
+            OrganizeCellGrid(X, Y, BombList, MyPlayer.explosionRange);
+
+            if (X == MyPlayer.Destination.X && Y == MyPlayer.Destination.Y && MyPlayer.bombsLeft > 0)
+                MyPlayer.Destination = TheRichestBoxSpotC(MyPlayer.coord, MIN_WALKING_RANGE, MAX_WALKING_RANGE);             
+
+            int safety = gridC[X,Y].safe;  
+            Coord shelter = FindShelterC(X, Y, 1, 2);        
+
+            if (safety<=1)
+            {                             
+                Console.WriteLine($"MOVE {shelter.X} {shelter.Y}");
+            } 
+            else if (Safe(X+1,Y) == 1 || Safe(X-1,Y) == 1 || Safe(X,Y+1) == 1 || Safe(X,Y-1) == 1)
+            {
+                Console.WriteLine($"MOVE {X} {Y}");
+            }
+            else if (safety < 6)
+            {             
+                SetDestination(MyPlayer, FindShelterC(X, Y, 5, 5));
+            }    
+            else 
+            {
+                Coord closestItem = ClosestEntity(X, Y, 2, entityList, entities);                
+                if (Distance(MyPlayer.coord, closestItem) <= 2)
+                {
+                    Console.WriteLine($"MOVE {closestItem.X} {closestItem.Y}");
+                }
+                else if (BoxCountC(X,Y, MyPlayer.explosionRange) > 0 && gridC[X, Y].type != 'b')
+                {
+                    if (MyPlayer.bombsLeft > 1 || MyPlayer.LastBomb > 2) 
+                    {
+                        BombList.Add(new Entity(X, Y, MyPlayer.explosionRange, 8));
+                        OrganizeCellGrid(X, Y, BombList, MyPlayer.explosionRange);
+                        shelter = FindShelterC(X, Y, 6, 10);
+                        if (!shelter.Equals(MyPlayer.coord))
+                        {
+                            Console.WriteLine($"BOMB {shelter.X} {shelter.Y}"); MyPlayer.LastBomb = 0;    
+                        }  
+                        else SetDestination(MyPlayer, MyPlayer.Destination);                                 
+                    } 
+                    else SetDestination(MyPlayer, MyPlayer.Destination);           
+                }                   
+                else SetDestination(MyPlayer, MyPlayer.Destination);   
+            }
+            
+        }
+    }
+}
